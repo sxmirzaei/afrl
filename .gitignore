@@ -1,8 +1,38 @@
-.venv
-data/*
-!data/scripts
-.ipynb_checkpoints
-best_models
-runs
-src/__pycache__
-experiments
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+
+# Data
+data/
+*.h5
+*.hdf5
+
+# Results (keep structure, ignore large files)
+*.npy
+*.pt
+*.pth
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Don't ignore results JSON and images
+!experiments/**/results/*.json
+!experiments/**/results/*.png
+!experiments/**/results/*.pdf
