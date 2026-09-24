@@ -1,6 +1,7 @@
 
 import argparse
 import os
+from typing import Optional, List
 import numpy as np
 import pandas as pd
 
@@ -62,12 +63,17 @@ def vel_to_acc(df: pd.DataFrame):
 
 
 def walk_and_process(
-    root: str, 
-    out_path_pos: str, 
-    out_path_vel: str | None, 
-    out_path_acc: str | None
+    root: str,
+    out_path_pos: str,
+    out_path_vel: Optional[str],
+    out_path_acc: Optional[str],
+    sampling_time: float,
 ):
     for dirname in os.listdir(root):
+        source_dir = os.path.join(root, dirname)
+        if not os.path.isdir(source_dir):
+            continue
+
         # Position is always resampled
         os.makedirs(os.path.join(out_path_pos, dirname), exist_ok=True)
         if out_path_vel:
@@ -75,25 +81,32 @@ def walk_and_process(
         if out_path_acc:
             os.makedirs(os.path.join(out_path_acc, dirname), exist_ok=True)
 
-        for filename in os.listdir(os.path.join(root, dirname)):
-            df = pd.read_csv(os.path.join(root, dirname, filename))
+        for filename in os.listdir(source_dir):
+            source_file = os.path.join(source_dir, filename)
+            if not os.path.isfile(source_file):
+                continue
 
-            pos = resample(df, 0.1)
-            pos.to_csv(os.path.join(out_path_pos, dirname, filename))
+            df = pd.read_csv(source_file)
 
-            if out_path_vel:
+            pos = resample(df, sampling_time)
+            pos.to_csv(os.path.join(out_path_pos, dirname, filename), index=False)
+
+            need_velocity = bool(out_path_vel) or bool(out_path_acc)
+            vel = None
+            if need_velocity:
                 vel = pos_to_vel(pos)
-                vel.to_csv(os.path.join(out_path_vel, dirname, filename))
+                if out_path_vel:
+                    vel.to_csv(os.path.join(out_path_vel, dirname, filename), index=False)
 
-            if out_path_acc:
+            if out_path_acc and vel is not None:
                 acc = vel_to_acc(vel)
-                acc.to_csv(os.path.join(out_path_acc, dirname, filename))
+                acc.to_csv(os.path.join(out_path_acc, dirname, filename), index=False)
 
 
-def scale_by(df: pd.DataFrame, coords: list[str], max):
+def scale_by(df: pd.DataFrame, coords: List[str], max):
     df[coords] = df[coords] / max
 
-def max_mag(df: pd.DataFrame, coords: list[str]):
+def max_mag(df: pd.DataFrame, coords: List[str]):
     coord_data = df[coords]
 
     sum_of_squares = (coord_data**2).sum(axis=1)
@@ -102,7 +115,7 @@ def max_mag(df: pd.DataFrame, coords: list[str]):
     return magnitudes.max()
 
 
-def walk_and_normalize(root: str, out: str, coords: list[str]):
+def walk_and_normalize(root: str, out: str, coords: List[str]):
     os.makedirs(out, exist_ok=True)
 
     max = 0
@@ -119,14 +132,18 @@ def walk_and_normalize(root: str, out: str, coords: list[str]):
             max = curr if curr > max else max
     
     for dirname in os.listdir(root):
-        os.makedirs(os.path.join(out, dirname))
-        for filename in os.listdir(os.path.join(root, dirname)):
+        src_dir = os.path.join(root, dirname)
+        if not os.path.isdir(src_dir):
+            continue
+
+        os.makedirs(os.path.join(out, dirname), exist_ok=True)
+        for filename in os.listdir(src_dir):
             df = pd.read_csv(
-                os.path.join(root, dirname, filename), 
+                os.path.join(src_dir, filename), 
                 usecols=["timestamp"] + coords
             )
             scale_by(df, coords, max)
-            df.to_csv(os.path.join(out, dirname, filename))
+            df.to_csv(os.path.join(out, dirname, filename), index=False)
 
 
 def main():
@@ -139,6 +156,20 @@ def main():
         action="store_true",
         help="Derives vel and acc, then normalizes vel and acc."
         "NOTE: This does not specify which datasets to include, just what actions to perform on the datasets."
+    )
+
+    parser.add_argument(
+        "--data-root",
+        type=str,
+        default="data/clean",
+        help="Input root directory containing raw position CSVs (default: data/clean).",
+    )
+
+    parser.add_argument(
+        "--out-root",
+        type=str,
+        default="data",
+        help="Output root directory where processed data will be saved (default: data).",
     )
     
     parser.add_argument(
@@ -186,16 +217,23 @@ def main():
 
     args = parser.parse_args()
 
-    data_root = "data/clean"
-    pos_path = "data/position/raw"
-    vel_path = "data/velocity/raw" 
-    acc_path = "data/acceleration/raw"
+    data_root = args.data_root
+    pos_path = os.path.join(args.out_root, "position", "raw")
+    vel_path = os.path.join(args.out_root, "velocity", "raw")
+    acc_path = os.path.join(args.out_root, "acceleration", "raw")
+
+    os.makedirs(pos_path, exist_ok=True)
+    if args.all or args.velocity:
+        os.makedirs(vel_path, exist_ok=True)
+    if args.all or args.acceleration:
+        os.makedirs(acc_path, exist_ok=True)
 
     walk_and_process(
         root=data_root,
         out_path_pos=pos_path,
-        out_path_vel=vel_path if args.all or args.velocity else None,
-        out_path_acc=acc_path if args.all or args.acceleration else None
+        out_path_vel=vel_path if args.all or args.velocity or args.acceleration else None,
+        out_path_acc=acc_path if args.all or args.acceleration else None,
+        sampling_time=args.time,
     )
     print("Done resampling and deriving.")
 
